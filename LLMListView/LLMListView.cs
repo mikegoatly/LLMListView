@@ -24,11 +24,13 @@ using Windows.UI.Xaml.Data;
 using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Media.Animation;
 using Windows.UI.Xaml.Media.Imaging;
-using XP;
 
 namespace LLM
 {
-    public sealed class LLMListView : ListView
+    using System.Collections.Generic;
+    using System.Linq;
+
+    public class LLMListView : ListView
     {
         private const int Refresh_Notify_Interval = 300;
         private const int Refresh_Status_Interval = 100;
@@ -54,7 +56,7 @@ namespace LLM
         private ProgressBar _pullProgressBar;
         private ProgressRing _refreshProgressRing;
         private ProgressBar _loadMoreProgressBar;
-        private XPButton _floatButton;
+        private Button _floatButton;
         private Image _floatButtonShadow;
         private ItemsPresenter _itemsPresenter;
         private ContentControl _emptyTemplateControl;
@@ -386,7 +388,130 @@ namespace LLM
                 _emptyTemplateControl.Visibility = Visibility.Visible;
             }
         }
+        /// <summary>
+        /// Gets the position in the list where the item(s) should be dropped
+        /// </summary>
+        public int DropAt { get; private set; }
 
+        /// <summary>
+        /// The on drag enter.
+        /// </summary>
+        /// <param name="e">
+        /// The e.
+        /// </param>
+        protected override void OnDragEnter(DragEventArgs e)
+        {
+            base.OnDragEnter(e);
+
+            this.DropAt = 0;
+        }
+
+        /// <summary>
+        /// The on drag leave.
+        /// </summary>
+        /// <param name="e">
+        /// The e.
+        /// </param>
+        protected override void OnDragLeave(DragEventArgs e)
+        {
+            base.OnDragLeave(e);
+
+            if (!this.AllowDrop)
+            {
+                return;
+            }
+
+            // When leaving the Drag operation, remove any order hint states
+            foreach (var item in this.Items.Select(this.ContainerFromItem).OfType<LLMListViewItem>())
+            {
+                VisualStateManager.GoToState(item, "NoReorderHint", true);
+            }
+        }
+
+        private static TChildItem FindVisualChild<TChildItem>(DependencyObject obj)
+            where TChildItem : DependencyObject
+        {
+            for (var i = 0; i < VisualTreeHelper.GetChildrenCount(obj); i++)
+            {
+                var child = VisualTreeHelper.GetChild(obj, i);
+                if (child is TChildItem)
+                {
+                    return (TChildItem)child;
+                }
+
+                var childOfChild = FindVisualChild<TChildItem>(child);
+                if (childOfChild != null)
+                {
+                    return childOfChild;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// The on drag over.
+        /// </summary>
+        /// <param name="e">
+        /// The e.
+        /// </param>
+        protected override void OnDragOver(DragEventArgs e)
+        {
+            if (!this.AllowDrop)
+            {
+                return;
+            }
+
+            var position = e.GetPosition(this);
+
+            // Get all of the list items
+            var items = this.Items.Select(this.ContainerFromItem).OfType<LLMListViewItem>().ToArray();
+
+            // Assume that we're dropping at the end of the list - this will work for empty lists too.
+            this.DropAt = items.Length;
+
+            // Start by offsetting the starting point by the vertical offset of the scroll container
+            var top = -FindVisualChild<ScrollViewer>(this).VerticalOffset;
+            for (var i = 0; i < items.Length; i++)
+            {
+                var item = items[i];
+                if (item.ActualHeight + top >= position.Y)
+                {
+                    // This is the element being hovered over - drop at this index.
+                    this.DropAt = i;
+                    break;
+                }
+
+                top += item.ActualHeight;
+            }
+
+            this.SetReorderHint(items);
+
+            base.OnDragOver(e);
+        }
+
+        private void SetReorderHint(IList<LLMListViewItem> items)
+        {
+            // Update the hinted state for all the items
+            for (var i = 0; i < items.Count; i++)
+            {
+                string hint;
+                if (i == this.DropAt - 1)
+                {
+                    hint = "TopReorderHint";
+                }
+                else if (i == this.DropAt)
+                {
+                    hint = "BottomReorderHint";
+                }
+                else
+                {
+                    hint = "NoReorderHint";
+                }
+
+                VisualStateManager.GoToState(items[i], hint, true);
+            }
+        }
         private void LLMListView_OnUnloaded(object sender, RoutedEventArgs routedEventArgs)
         {
             if (_timer != null)
@@ -458,7 +583,7 @@ namespace LLM
             _pullProgressBar = (ProgressBar) GetTemplateChild("PullProgressBar");
             _refreshProgressRing = (ProgressRing) GetTemplateChild("RefreshProgressRing");
             _loadMoreProgressBar = (ProgressBar) GetTemplateChild("LoadMoreProgressBar");
-            _floatButton = (XPButton) GetTemplateChild("FloatButton");
+            _floatButton = (Button) GetTemplateChild("FloatButton");
             _floatButtonShadow = (Image) GetTemplateChild("FloatButtonShadow");
             _itemsPresenter = (ItemsPresenter) GetTemplateChild("ItemsPresenter");
             _emptyTemplateControl = (ContentControl) GetTemplateChild("EmptyTemplateControl");
